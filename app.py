@@ -36,21 +36,64 @@ def load_data():
     return None
 
 @st.cache_resource
-def load_models():
+def load_or_train_models():
+    os.makedirs("saved_models", exist_ok=True)
     models = {}
-    model_files = {
+    
+    paths = {
         "xgb_classifier": "saved_models/xgb_classifier.joblib",
         "isolation_forest": "saved_models/isolation_forest.joblib",
         "xgb_regressor": "saved_models/xgb_regressor.joblib",
         "rf_regressor": "saved_models/rf_regressor.joblib"
     }
-    for key, path in model_files.items():
-        if os.path.exists(path):
-            models[key] = joblib.load(path)
+    
+    # Check if models are already saved locally
+    if all(os.path.exists(p) for p in paths.values()):
+        for k, p in paths.items():
+            models[k] = joblib.load(p)
+        return models
+        
+    # Otherwise, train them on the fly using processed parquet data
+    df_path = "data/processed/xjtu_sy_features.parquet"
+    if not os.path.exists(df_path):
+        st.error("Processed dataset not found.")
+        return None
+        
+    df = pd.read_parquet(df_path)
+    df["Binary_Anomaly"] = (df["RUL_Percentage"] < 0.2).astype(int)
+    drop_cols = ["Bearing", "FileIndex", "TotalLifetime", "RUL_Percentage", "Binary_Anomaly"]
+    X = df.drop(columns=drop_cols)
+    
+    # Train Classifier
+    y_class = df["Binary_Anomaly"]
+    xgb_clf = XGBClassifier(n_estimators=50, random_state=42)
+    xgb_clf.fit(X, y_class)
+    joblib.dump(xgb_clf, paths["xgb_classifier"])
+    models["xgb_classifier"] = xgb_clf
+    
+    # Train Isolation Forest (on normal samples)
+    X_normal = X[y_class == 0]
+    iso = IsolationForest(contamination=0.2, random_state=42)
+    iso.fit(X_normal)
+    joblib.dump(iso, paths["isolation_forest"])
+    models["isolation_forest"] = iso
+    
+    # Train Regressors
+    y_reg = df["RUL_Percentage"]
+    xgb_reg = XGBRegressor(n_estimators=50, random_state=42)
+    xgb_reg.fit(X, y_reg)
+    joblib.dump(xgb_reg, paths["xgb_regressor"])
+    models["xgb_regressor"] = xgb_reg
+    
+    rf_reg = RandomForestRegressor(n_estimators=50, random_state=42, n_jobs=-1)
+    rf_reg.fit(X, y_reg)
+    joblib.dump(rf_reg, paths["rf_regressor"])
+    models["rf_regressor"] = rf_reg
+    
     return models
 
 df = load_data()
-models = load_models()
+models = load_or_train_models()
 
 # --- App Header ---
 st.title("Industrial Bearing Prognostics & Health Management")
