@@ -6,6 +6,10 @@ import plotly.graph_objects as go
 import joblib
 import os
 
+# Model imports for on-the-fly training
+from xgboost import XGBClassifier, XGBRegressor
+from sklearn.ensemble import IsolationForest, RandomForestRegressor
+
 # --- Page Configuration ---
 st.set_page_config(
     page_title="Industrial Bearing PHM Dashboard",
